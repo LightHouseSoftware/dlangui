@@ -164,17 +164,39 @@ class FreeTypeFontFile {
 
     /// open face with specified size
     bool open(int size, int index = 0) {
-        int error = FT_New_Face( _library, _filename.toStringz, index, &_face); /* create face object */
+        import dlangui.graphics.resources;
+
+        bool memory = _filename.startsWith(EMBEDDED_RESOURCE_PREFIX);
+        int error;
+        if (memory) {
+            immutable ubyte[] data = loadResourceBytes(_filename);
+            if (data is null || data.empty)
+                return false;
+            error = FT_New_Memory_Face(_library, data.ptr, cast(FT_Long) data.length, index, &_face); /* create face object */
+        } else
+            error = FT_New_Face(_library, _filename.toStringz, index, &_face); /* create face object */
+
         if (error)
             return false;
-        if ( _filename.endsWith(".pfb") || _filename.endsWith(".pfa") ) {
+
+        if (_filename.endsWith(".pfb") || _filename.endsWith(".pfa")) {
             string kernFile = _filename[0 .. $ - 4];
-            if (exists(kernFile ~ ".afm")) {
-                kernFile ~= ".afm";
-            } else if (exists(kernFile ~ ".pfm" )) {
-                kernFile ~= ".pfm";
+            if (memory) {
+                immutable ubyte[] afm = loadResourceBytes(kernFile ~ ".afm");
+                immutable ubyte[] pfm = loadResourceBytes(kernFile ~ ".pfm");
+                if (afm !is null && !afm.empty)
+                    kernFile ~= ".afm";
+                else if (pfm !is null && !pfm.empty)
+                    kernFile ~= ".pfm";
+                else
+                    kernFile.destroy();
             } else {
-                kernFile.destroy();
+                if (exists(kernFile ~ ".afm"))
+                    kernFile ~= ".afm";
+                else if (exists(kernFile ~ ".pfm"))
+                    kernFile ~= ".pfm";
+                else
+                    kernFile.destroy();
             }
             if (kernFile.length > 0)
                 error = FT_Attach_File(_face, kernFile.toStringz);
@@ -675,10 +697,12 @@ class FreeTypeFontManager : FontManager {
 
     /// register freetype font by filename - optinally font properties can be passed if known (e.g. from libfontconfig).
     bool registerFont(string filename, FontFamily family, string face = null, bool italic = false, int weight = 0, bool dontLoadFile = false) {
+        import dlangui.graphics.resources;
+
         if (_library is null)
             return false;
         //Log.v("FreeTypeFontManager.registerFont ", filename, " ", family, " ", face, " italic=", italic, " weight=", weight);
-        if (!exists(filename) || !isFile(filename)) {
+        if (!filename.startsWith(EMBEDDED_RESOURCE_PREFIX) && !(exists(filename) && isFile(filename))) {
             Log.d("Font file ", filename, " not found");
             return false;
         }
